@@ -1,0 +1,335 @@
+# main.py
+import tkinter as tk
+from tkinter import ttk, messagebox
+import mysql.connector
+from datetime import datetime
+
+# --- Cấu hình kết nối DB: chỉnh lại theo máy bạn ---
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "250906",  # sửa thành mật khẩu của bạn
+    "database": "qlbenhnhan"
+}
+
+# --- Hàm kết nối ---
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
+
+# --- Tạo bảng nếu chưa có (tự động) ---
+def ensure_db_table():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS benhnhan (
+        ma_bn VARCHAR(20) NOT NULL UNIQUE,
+        ho_ten VARCHAR(100) NOT NULL,
+        gioi_tinh ENUM('Nam','Nu','Khac') DEFAULT 'Nam',
+        ngay_sinh DATE,
+        so_dt VARCHAR(20),
+        dia_chi VARCHAR(255),
+        chan_doan TEXT,
+        ngay_nhapvien DATE,
+        ghi_chu TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) CHARACTER SET = utf8mb4;
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# --- CRUD trên DB ---
+def add_patient(data):
+    sql = """
+    INSERT INTO benhnhan (ma_bn, ho_ten, gioi_tinh, ngay_sinh, so_dt, dia_chi, chan_doan, ngay_nhapvien, ghi_chu)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, data)
+        conn.commit()
+        return True, None
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cur.close()
+        conn.close()
+
+def update_patient(pid, data):
+    sql = """
+    UPDATE benhnhan SET ma_bn=%s, ho_ten=%s, gioi_tinh=%s, ngay_sinh=%s, so_dt=%s, dia_chi=%s, chan_doan=%s, ngay_nhapvien=%s, ghi_chu=%s
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, data + (pid,))
+        conn.commit()
+        return True, None
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cur.close()
+        conn.close()
+
+def delete_patient(pid):
+    sql = "DELETE FROM benhnhan WHERE id=%s"
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, (pid,))
+        conn.commit()
+        return True, None
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cur.close()
+        conn.close()
+
+def fetch_all_patients():
+    sql = "SELECT ma_bn, ho_ten, gioi_tinh, ngay_sinh, so_dt, dia_chi, chan_doan, ngay_nhapvien, ghi_chu FROM benhnhan ORDER BY id DESC"
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(sql)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def search_patients(keyword):
+    kw = f"%{keyword}%"
+    sql = """
+    SELECT ma_bn, ho_ten, gioi_tinh, ngay_sinh, so_dt, dia_chi, chan_doan, ngay_nhapvien, ghi_chu
+    FROM benhnhan
+    WHERE ma_bn LIKE %s OR ho_ten LIKE %s OR so_dt LIKE %s OR dia_chi LIKE %s OR chan_doan LIKE %s
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(sql, (kw, kw, kw, kw, kw))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+# --- GUI ---
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Quản lý bệnh nhân")
+        self.root.geometry("1000x600")
+
+        # Input frame
+        frm = tk.Frame(root, padx=8, pady=8)
+        frm.pack(fill=tk.X)
+
+        # Left columns of inputs
+        left = tk.Frame(frm)
+        left.pack(side=tk.LEFT, padx=8)
+
+        tk.Label(left, text="Mã BN").grid(row=0, column=0, sticky="w")
+        self.e_ma = tk.Entry(left); self.e_ma.grid(row=0, column=1)
+
+        tk.Label(left, text="Họ & tên").grid(row=1, column=0, sticky="w")
+        self.e_name = tk.Entry(left, width=30); self.e_name.grid(row=1, column=1)
+
+        tk.Label(left, text="Giới tính").grid(row=2, column=0, sticky="w")
+        self.cb_gender = ttk.Combobox(left, values=["Nam","Nu","Khac"], state="readonly", width=27)
+        self.cb_gender.current(0); self.cb_gender.grid(row=2, column=1)
+
+        tk.Label(left, text="Ngày sinh (YYYY-MM-DD)").grid(row=3, column=0, sticky="w")
+        self.e_dob = tk.Entry(left); self.e_dob.grid(row=3, column=1)
+
+        tk.Label(left, text="Số ĐT").grid(row=4, column=0, sticky="w")
+        self.e_phone = tk.Entry(left); self.e_phone.grid(row=4, column=1)
+
+        # Right column
+        right = tk.Frame(frm)
+        right.pack(side=tk.LEFT, padx=20)
+
+        tk.Label(right, text="Địa chỉ").grid(row=0, column=0, sticky="w")
+        self.e_addr = tk.Entry(right, width=40); self.e_addr.grid(row=0, column=1)
+
+        tk.Label(right, text="Chẩn đoán").grid(row=1, column=0, sticky="w")
+        self.e_diag = tk.Entry(right, width=40); self.e_diag.grid(row=1, column=1)
+
+        tk.Label(right, text="Ngày nhập viện (YYYY-MM-DD)").grid(row=2, column=0, sticky="w")
+        self.e_admit = tk.Entry(right); self.e_admit.grid(row=2, column=1)
+
+        tk.Label(right, text="Ghi chú").grid(row=3, column=0, sticky="w")
+        self.e_note = tk.Entry(right, width=40); self.e_note.grid(row=3, column=1)
+
+        # Buttons
+        btn_frame = tk.Frame(root, pady=8)
+        btn_frame.pack(fill=tk.X)
+
+        tk.Button(btn_frame, text="Thêm", command=self.on_add).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Cập nhật", command=self.on_update).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Xóa", command=self.on_delete).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Làm mới", command=self.clear_inputs).pack(side=tk.LEFT, padx=6)
+
+        tk.Label(btn_frame, text="Tìm kiếm:").pack(side=tk.LEFT, padx=12)
+        self.e_search = tk.Entry(btn_frame)
+        self.e_search.pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Tìm", command=self.on_search).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Tải tất cả", command=self.load_data).pack(side=tk.LEFT, padx=6)
+
+        # Treeview bảng
+        cols = ("id","ma_bn","ho_ten","gioi_tinh","ngay_sinh","so_dt","dia_chi","chan_doan","ngay_nhapvien","ghi_chu")
+        self.tree = ttk.Treeview(root, columns=cols, show="headings")
+        for c in cols:
+            self.tree.heading(c, text=c)
+            # set width
+            if c == "ghi_chu" or c=="chan_doan" or c=="dia_chi":
+                self.tree.column(c, width=180)
+            elif c=="ho_ten":
+                self.tree.column(c, width=140)
+            else:
+                self.tree.column(c, width=100)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+
+        # Load data initially
+        self.load_data()
+
+    # --- GUI helpers ---
+    def get_inputs(self):
+        # Validate date formats (basic)
+        def parse_date(s):
+            s = s.strip()
+            if not s: return None
+            try:
+                datetime.strptime(s, "%Y-%m-%d")
+                return s
+            except:
+                raise ValueError("Sai định dạng ngày. Hãy dùng YYYY-MM-DD")
+        ma = self.e_ma.get().strip()
+        if not ma: raise ValueError("Mã BN không được để trống")
+        name = self.e_name.get().strip()
+        if not name: raise ValueError("Họ tên không được để trống")
+        gender = self.cb_gender.get()
+        dob = parse_date(self.e_dob.get())
+        phone = self.e_phone.get().strip()
+        addr = self.e_addr.get().strip()
+        diag = self.e_diag.get().strip()
+        admit = parse_date(self.e_admit.get())
+        note = self.e_note.get().strip()
+        return (ma, name, gender, dob, phone, addr, diag, admit, note)
+
+    def clear_inputs(self):
+        for w in [self.e_ma, self.e_name, self.cb_gender, self.e_dob, self.e_phone, self.e_addr, self.e_diag, self.e_admit, self.e_note]:
+            if isinstance(w, ttk.Combobox):
+                w.current(0)
+            else:
+                try:
+                    w.delete(0, tk.END)
+                except:
+                    pass
+        self.tree.selection_remove(self.tree.selection())
+
+    def load_data(self):
+        for r in self.tree.get_children():
+            self.tree.delete(r)
+        try:
+            rows = fetch_all_patients()
+            for row in rows:
+                self.tree.insert("", tk.END, values=row)
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+
+    def on_add(self):
+        try:
+            data = self.get_inputs()
+        except Exception as e:
+            messagebox.showerror("Dữ liệu không hợp lệ", str(e))
+            return
+        ok, err = add_patient(data)
+        if ok:
+            messagebox.showinfo("Thành công", "Đã thêm bệnh nhân")
+            self.load_data()
+            self.clear_inputs()
+        else:
+            messagebox.showerror("Lỗi khi thêm", err)
+
+    def on_update(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showwarning("Chú ý", "Chọn bản ghi cần cập nhật")
+            return
+        pid = self.tree.item(sel[0])["values"][0]
+        try:
+            data = self.get_inputs()
+        except Exception as e:
+            messagebox.showerror("Dữ liệu không hợp lệ", str(e))
+            return
+        ok, err = update_patient(pid, data)
+        if ok:
+            messagebox.showinfo("Thành công", "Cập nhật thành công")
+            self.load_data()
+            self.clear_inputs()
+        else:
+            messagebox.showerror("Lỗi khi cập nhật", err)
+
+    def on_delete(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showwarning("Chú ý", "Chọn bản ghi cần xóa")
+            return
+        pid = self.tree.item(sel[0])["values"][0]
+        if messagebox.askyesno("Xác nhận", "Bạn có chắc muốn xóa bản ghi này?"):
+            ok, err = delete_patient(pid)
+            if ok:
+                messagebox.showinfo("Thành công", "Đã xóa")
+                self.load_data()
+                self.clear_inputs()
+            else:
+                messagebox.showerror("Lỗi khi xóa", err)
+
+    def on_search(self):
+        kw = self.e_search.get().strip()
+        for r in self.tree.get_children():
+            self.tree.delete(r)
+        if not kw:
+            self.load_data()
+            return
+        try:
+            rows = search_patients(kw)
+            for row in rows:
+                self.tree.insert("", tk.END, values=row)
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+
+    def on_tree_select(self, event):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        row = self.tree.item(sel[0])["values"]
+        # row: (id, ma_bn, ho_ten, gioi_tinh, ngay_sinh, so_dt, dia_chi, chan_doan, ngay_nhapvien, ghi_chu)
+        _, ma, name, gender, dob, phone, addr, diag, admit, note = row
+        # fill inputs
+        self.e_ma.delete(0, tk.END); self.e_ma.insert(0, ma)
+        self.e_name.delete(0, tk.END); self.e_name.insert(0, name)
+        if gender in ("Nam","Nu","Khac"):
+            self.cb_gender.set(gender)
+        else:
+            self.cb_gender.set("Nam")
+        self.e_dob.delete(0, tk.END); self.e_dob.insert(0, dob if dob else "")
+        self.e_phone.delete(0, tk.END); self.e_phone.insert(0, phone if phone else "")
+        self.e_addr.delete(0, tk.END); self.e_addr.insert(0, addr if addr else "")
+        self.e_diag.delete(0, tk.END); self.e_diag.insert(0, diag if diag else "")
+        self.e_admit.delete(0, tk.END); self.e_admit.insert(0, admit if admit else "")
+        self.e_note.delete(0, tk.END); self.e_note.insert(0, note if note else "")
+
+# --- Run ứng dụng ---
+if __name__ == "__main__":
+    try:
+        ensure_db_table()
+    except Exception as e:
+        messagebox.showerror("Lỗi kết nối DB", f"Không thể tạo bảng tự động.\nChi tiết: {e}")
+
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
+
